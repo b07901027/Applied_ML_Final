@@ -14,10 +14,15 @@ I have already generated 2 datasets(uploaded to google drive folder). For each d
 Unique_values.csv gives the unique values found in each non numerical variable
 
 Model:
+
 input file:
+
 X_Reduced_set.csv / X_Reduced_PCA_set.csv (only used in DNN.py SMOTE.py for gridCV search, since gridCV takes too long to complete)
+
 Y_Reduced_set.csv
+
 from Jacob's preprocessing data
+
 Designed model:
 
 use X_Reduced_PCA_set.csv
