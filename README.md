@@ -35,5 +35,7 @@ use X_Reduced_set.csv
 4. XGB: --metrics: 0.91
 5. LGBM: --metrics: 0.91
 6. CAT: --metrics: 0.92
-7. ensemble_voting: combine XGB, LGBM, CAT --metrics: 0.94
+7. ensemble_voting: combine XGB, LGBM, CATusing voting--metrics: 0.94
+8. ensemble_voting_weighted: combine XGB, LGBM, CAT using voting with emphasis on minority group -- metrics:0.95
+9. ensemble_kcross_stacking: combine XGB, LGBM, CAT using stacking with emphasis on minority group, and improve accuracy with kcross -- metrics:0.96
 
