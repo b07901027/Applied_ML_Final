@@ -3,21 +3,17 @@ import pandas as pd
 import numpy as np
 import pickle
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 from sklearn.metrics import accuracy_score, classification_report, roc_auc_score, confusion_matrix, roc_curve
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import VotingClassifier
+from sklearn.ensemble import StackingClassifier
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-
-from imblearn.over_sampling import SMOTE
 
 # Import classifiers
 from catboost import CatBoostClassifier
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
-
 
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
@@ -49,14 +45,10 @@ scaler_full = StandardScaler()
 X_train_scaled_full = scaler_full.fit_transform(X_train_full)
 X_test_scaled = scaler_full.transform(X_test)
 
-# Use SMOTE to oversample the minority class in the training data
-print('Applying SMOTE to balance the training data...')
-smote = SMOTE(random_state=RANDOM_STATE, sampling_strategy=0.5)
-X_train_balanced, y_train_balanced = (X_train_scaled_full, y_train_full)
+# Define stratified k-fold cross-validator
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
 
-print(f'Balanced training set shape: {X_train_balanced.shape}, {y_train_balanced.shape}')
-
-# Define individual models with parameters
+# Define individual models
 print('Defining individual models...')
 catboost_model = CatBoostClassifier(
     iterations=1000,
@@ -65,8 +57,10 @@ catboost_model = CatBoostClassifier(
     loss_function='Logloss',
     eval_metric='AUC',
     random_seed=RANDOM_STATE,
-    verbose=100,
-    early_stopping_rounds=50
+    verbose=False,
+    early_stopping_rounds=50,
+    class_weights=[1, 10],
+    thread_count=2
 )
 
 xgboost_model = XGBClassifier(
@@ -77,8 +71,10 @@ xgboost_model = XGBClassifier(
     colsample_bytree=0.8,
     objective='binary:logistic',
     random_state=RANDOM_STATE,
+    scale_pos_weight=10,
     use_label_encoder=False,
-    eval_metric='logloss'
+    eval_metric='logloss',
+    n_jobs=2
 )
 
 lightgbm_model = LGBMClassifier(
@@ -88,29 +84,54 @@ lightgbm_model = LGBMClassifier(
     subsample=0.8,
     colsample_bytree=0.8,
     objective='binary',
-    random_state=RANDOM_STATE
+    random_state=RANDOM_STATE,
+    class_weight={0: 1, 1: 10},
+    n_jobs=2
 )
 
-# Create the voting ensemble
-print('Creating voting ensemble...')
-voting_clf = VotingClassifier(
-    estimators=[
-        ('catboost', catboost_model),
-        ('xgboost', xgboost_model),
-        ('lightgbm', lightgbm_model)
-    ],
-    voting='soft',
-    n_jobs=-1
+# Create stacking ensemble
+print('Creating stacking ensemble...')
+estimators = [
+    ('catboost', catboost_model),
+    ('xgboost', xgboost_model),
+    ('lightgbm', lightgbm_model)
+]
+
+final_estimator = LGBMClassifier(
+    n_estimators=200,
+    learning_rate=0.1,
+    random_seed=RANDOM_STATE
 )
 
-# Train the voting ensemble
-print('Training the voting ensemble...')
-voting_clf.fit(X_train_balanced, y_train_balanced)
+stacking_clf = StackingClassifier(
+    estimators=estimators,
+    final_estimator=final_estimator,
+    cv=skf,
+    n_jobs=2,
+    passthrough=False
+)
+
+# Train the stacking ensemble using cross-validation
+print('Training and evaluating the stacking ensemble with cross-validation...')
+cv_scores = cross_val_score(
+    stacking_clf,
+    X_train_scaled_full,
+    y_train_full,
+    cv=skf,
+    scoring='roc_auc',
+    n_jobs=2
+)
+print(f'Cross-validation ROC AUC scores: {cv_scores}')
+print(f'Mean ROC AUC score: {cv_scores.mean():.4f}')
+
+# Fit the stacking ensemble on the full training data
+print('Fitting the stacking ensemble on the full training data...')
+stacking_clf.fit(X_train_scaled_full, y_train_full)
 
 # Evaluate the ensemble on the test set
-print('\nEvaluating the voting ensemble on the test set...')
-y_test_pred = voting_clf.predict(X_test_scaled)
-y_test_pred_proba = voting_clf.predict_proba(X_test_scaled)[:, 1]
+print('\nEvaluating the stacking ensemble on the test set...')
+y_test_pred = stacking_clf.predict(X_test_scaled)
+y_test_pred_proba = stacking_clf.predict_proba(X_test_scaled)[:, 1]
 
 # Calculate accuracy
 test_accuracy = accuracy_score(y_test, y_test_pred)
@@ -134,7 +155,7 @@ plt.figure(figsize=(6, 4))
 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
             xticklabels=['Not Fraud', 'Fraud'],
             yticklabels=['Not Fraud', 'Fraud'])
-plt.title('Confusion Matrix Heatmap (Voting Ensemble)')
+plt.title('Confusion Matrix Heatmap (Stacking Ensemble)')
 plt.xlabel('Predicted Label')
 plt.ylabel('True Label')
 plt.show()
@@ -148,16 +169,16 @@ plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])
 plt.xlabel('False Positive Rate')
 plt.ylabel('True Positive Rate')
-plt.title('Receiver Operating Characteristic (Voting Ensemble)')
+plt.title('Receiver Operating Characteristic (Stacking Ensemble)')
 plt.legend(loc='lower right')
 plt.show()
 
 # Save the ensemble model and the scaler
-ensemble_model_filename = 'voting_ensemble_model.pkl'
+ensemble_model_filename = 'stacking_ensemble_model.pkl'
 scaler_filename = 'scaler.pkl'
 
 with open(ensemble_model_filename, 'wb') as file:
-    pickle.dump(voting_clf, file)
+    pickle.dump(stacking_clf, file)
 print(f'Ensemble model saved as {ensemble_model_filename}')
 
 with open(scaler_filename, 'wb') as file:

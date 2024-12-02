@@ -50,13 +50,13 @@ X_train_scaled_full = scaler_full.fit_transform(X_train_full)
 X_test_scaled = scaler_full.transform(X_test)
 
 # Use SMOTE to oversample the minority class in the training data
+# Apply SMOTE correctly
 print('Applying SMOTE to balance the training data...')
 smote = SMOTE(random_state=RANDOM_STATE, sampling_strategy=0.5)
 X_train_balanced, y_train_balanced = (X_train_scaled_full, y_train_full)
-
 print(f'Balanced training set shape: {X_train_balanced.shape}, {y_train_balanced.shape}')
 
-# Define individual models with parameters
+# Update individual models with class weights or scale_pos_weight
 print('Defining individual models...')
 catboost_model = CatBoostClassifier(
     iterations=1000,
@@ -66,7 +66,8 @@ catboost_model = CatBoostClassifier(
     eval_metric='AUC',
     random_seed=RANDOM_STATE,
     verbose=100,
-    early_stopping_rounds=50
+    early_stopping_rounds=50,
+    class_weights=[1, 10]  # Adjust the weight for the minority class
 )
 
 xgboost_model = XGBClassifier(
@@ -77,6 +78,7 @@ xgboost_model = XGBClassifier(
     colsample_bytree=0.8,
     objective='binary:logistic',
     random_state=RANDOM_STATE,
+    scale_pos_weight=10,  # Adjust this based on the imbalance ratio
     use_label_encoder=False,
     eval_metric='logloss'
 )
@@ -88,8 +90,10 @@ lightgbm_model = LGBMClassifier(
     subsample=0.8,
     colsample_bytree=0.8,
     objective='binary',
-    random_state=RANDOM_STATE
+    random_state=RANDOM_STATE,
+    class_weight={0: 1, 1: 10}  # Adjust the weight for the minority class
 )
+
 
 # Create the voting ensemble
 print('Creating voting ensemble...')
